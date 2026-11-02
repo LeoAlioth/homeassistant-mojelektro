@@ -13,6 +13,7 @@ from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -20,6 +21,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .const import CONF_DECIMAL, CONF_METER_ID, CONF_TOKEN, DOMAIN, VERSION
+from .history import async_stored_total, history_signal
 from .moj_elektro_api import (
     MojElektroApi,
     MojElektroAuthError,
@@ -65,7 +67,69 @@ async def async_setup_entry(
         MojElektroSensor(coordinator, measurement, meter_id)
         for measurement in coordinator.data
     ]
+    sensors += [
+        MojElektroTotalSensor(entry.entry_id, meter_id, kind)
+        for kind in ("import", "export")
+    ]
     async_add_entities(sensors)
+
+
+def _device_info(meter_id: str) -> dict:
+    """Device information for grouping a meter's sensors under one device."""
+    return {
+        "identifiers": {(DOMAIN, meter_id)},
+        "name": f"Moj Elektro {meter_id}",
+        "manufacturer": "Moj Elektro",
+        # Home Assistant requires model to be a string, not a set.
+        "model": meter_id,
+        "sw_version": VERSION,
+    }
+
+
+class MojElektroTotalSensor(SensorEntity):
+    """Lifetime import or export, read from the imported hourly statistics.
+
+    It has no state class on purpose: the totals arrive a day late, and a state
+    class would make Home Assistant book each update into the hour it arrived
+    in, instead of the hours the energy was used. The hourly statistics stay
+    the only ones, placed on the right hours by the import.
+    """
+
+    _attr_should_poll = False
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_icon = "mdi:transmission-tower"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, entry_id: str, meter_id: str, kind: str) -> None:
+        self._entry_id = entry_id
+        self.meter_id = meter_id
+        self._kind = kind
+        self._attr_unique_id = f"{meter_id}-total_{kind}"
+        self._attr_name = f"Moj Elektro total {kind}"
+        self._attr_device_info = _device_info(meter_id)
+        self._attr_native_value = None
+        self._attr_extra_state_attributes = {"data_through": None}
+
+    async def async_added_to_hass(self) -> None:
+        """Read the stored total now and after every import."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, history_signal(self._entry_id), self._async_refresh
+            )
+        )
+        await self._async_refresh()
+
+    async def _async_refresh(self) -> None:
+        stored = await async_stored_total(self.hass, self.meter_id, self._kind)
+        if stored:
+            hour, total = stored
+            self._attr_native_value = total
+            # The last hour is covered up to its end.
+            self._attr_extra_state_attributes = {
+                "data_through": (hour + timedelta(hours=1)).isoformat()
+            }
+        self.async_write_ha_state()
 
 
 class MojElektroSensor(CoordinatorEntity, SensorEntity):
@@ -98,14 +162,7 @@ class MojElektroSensor(CoordinatorEntity, SensorEntity):
     @property
     def device_info(self):
         """Return device information for grouping sensors under one device."""
-        return {
-            "identifiers": {(DOMAIN, self.meter_id)},
-            "name": f"Moj Elektro {self.meter_id}",
-            "manufacturer": "Moj Elektro",
-            # Home Assistant requires model to be a string, not a set.
-            "model": self.meter_id,
-            "sw_version": VERSION,
-        }
+        return _device_info(self.meter_id)
 
     @property
     def native_value(self):
