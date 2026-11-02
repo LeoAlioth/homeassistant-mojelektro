@@ -1,6 +1,6 @@
 # Configuration for MojElektroApi
 DOMAIN = "mojelektro"
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 CONF_TOKEN = "token"  # Adjusted from TOKEN to CONF_TOKEN
 CONF_METER_ID = "meter_id"  # Adjusted from METER_ID to CONF_METER_ID
 CONF_DECIMAL = "decimal"
