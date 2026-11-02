@@ -7,10 +7,12 @@
         "data": {
           "token": "Token",
           "meter_id": "Meter ID (EIMM)",
-          "decimal": "Decimal places for sensors."
+          "decimal": "Decimal places for sensors.",
+          "import_history": "Import hourly history into statistics"
         },
         "data_description": {
-          "decimal": "Leave empty for default (4) or enter decimal places for energy sensors (0-10)."
+          "decimal": "Leave empty for default (4) or enter decimal places for energy sensors (0-10).",
+          "import_history": "Import hourly import and export (from the oldest date Moj Elektro still serves) into long-term statistics, and keep adding each new day. Pick them in the Energy dashboard as \"Moj Elektro import\" and \"Moj Elektro export\"."
         }
       },
       "reauth_confirm": {
@@ -29,6 +31,22 @@
     "abort": {
       "already_configured": "This device is already configured.",
       "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "services": {
+    "import_history": {
+      "name": "Import history",
+      "description": "Import hourly import and export into the statistics again from a date, replacing what is stored from then on.",
+      "fields": {
+        "start_date": {
+          "name": "Start date",
+          "description": "First day to import."
+        },
+        "config_entry": {
+          "name": "Meter",
+          "description": "Config entry to import for. All loaded meters if empty."
+        }
+      }
     }
   }
 }

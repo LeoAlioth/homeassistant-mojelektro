@@ -1,0 +1,11 @@
+import_history:
+  fields:
+    start_date:
+      required: true
+      selector:
+        date:
+    config_entry:
+      required: false
+      selector:
+        config_entry:
+          integration: mojelektro

@@ -4,6 +4,7 @@ import aiohttp
 import logging
 
 from .const import SETUP_TAG_15_ARRAY, SETUP_TAG_ARRAY, READING_TYPE_ARRAY, SETUP_TAG_BLOCKS_ARRAY
+from .hourly import READING_EXPORT, READING_IMPORT
 from .tariff import network_tariff_block
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,7 +49,29 @@ class MojElektroApi:
 
     async def getMeterReadings(self, rType=None):
         """Fetch meter readings from the Moj Elektro API."""
-        url = self.define_request(rType)
+        return await self._get_interval_blocks(self.define_request(rType))
+
+
+    async def get_energy_intervals(self, start, end):
+        """Fetch 15-minute import and export readings for [start, end).
+
+        The API takes at most 35 days per request and answers HTTP 400 for
+        dates it no longer serves.
+        """
+        params = "".join(
+            f"&option=ReadingType%3D{reading_type}"
+            for reading_type in (READING_IMPORT, READING_EXPORT)
+        )
+        url = (
+            "https://api.informatika.si/mojelektro/v1/meter-readings"
+            f"?usagePoint={self.meter_id}&startTime={start:%Y-%m-%d}"
+            f"&endTime={end:%Y-%m-%d}{params}"
+        )
+        return await self._get_interval_blocks(url)
+
+
+    async def _get_interval_blocks(self, url):
+        """GET a meter-readings URL and return its interval blocks."""
         headers = {"accept": "application/json", "X-API-TOKEN": self.token}
 
         try:
