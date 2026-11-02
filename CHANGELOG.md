@@ -4,6 +4,11 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.3.4] - 2026-11-02
+
+- the hourly history is now written as the long-term statistics of the `Total import` and `Total export` sensors instead of the separate `mojelektro:` statistics, so cards that read a sensor's statistics (statistics graphs, Sankey charts that follow the date selector) can show it; the sensors still have no state class, so Home Assistant adds no statistics of its own for them
+- sensors are named without the `Moj Elektro` prefix and take the device name instead (`Moj Elektro <meter id> daily input`), which fixes the doubled prefix after the device was named with the meter id; existing entity ids are unchanged
+
 ## [0.3.3] - 2026-11-02
 
 ### Long-term statistics

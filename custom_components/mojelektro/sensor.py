@@ -21,7 +21,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .const import CONF_DECIMAL, CONF_METER_ID, CONF_TOKEN, DOMAIN, VERSION
-from .history import async_stored_total, history_signal
+from .history import async_stored_total, history_signal, total_unique_id
 from .moj_elektro_api import (
     MojElektroApi,
     MojElektroAuthError,
@@ -87,14 +87,15 @@ def _device_info(meter_id: str) -> dict:
 
 
 class MojElektroTotalSensor(SensorEntity):
-    """Lifetime import or export, read from the imported hourly statistics.
+    """Lifetime import or export, read from the sensor's own imported statistics.
 
-    It has no state class on purpose: the totals arrive a day late, and a state
-    class would make Home Assistant book each update into the hour it arrived
-    in, instead of the hours the energy was used. The hourly statistics stay
-    the only ones, placed on the right hours by the import.
+    The history import writes the hourly statistics of these sensors. They have
+    no state class on purpose: the totals arrive a day late, and a state class
+    would make Home Assistant book each update into the hour it arrived in,
+    instead of the hours the energy was used.
     """
 
+    _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
@@ -105,8 +106,8 @@ class MojElektroTotalSensor(SensorEntity):
         self._entry_id = entry_id
         self.meter_id = meter_id
         self._kind = kind
-        self._attr_unique_id = f"{meter_id}-total_{kind}"
-        self._attr_name = f"Moj Elektro total {kind}"
+        self._attr_unique_id = total_unique_id(meter_id, kind)
+        self._attr_name = f"Total {kind}"
         self._attr_device_info = _device_info(meter_id)
         self._attr_native_value = None
         self._attr_extra_state_attributes = {"data_through": None}
@@ -121,7 +122,7 @@ class MojElektroTotalSensor(SensorEntity):
         await self._async_refresh()
 
     async def _async_refresh(self) -> None:
-        stored = await async_stored_total(self.hass, self.meter_id, self._kind)
+        stored = await async_stored_total(self.hass, self.entity_id)
         if stored:
             hour, total = stored
             self._attr_native_value = total
@@ -147,7 +148,8 @@ class MojElektroSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = (
             f"{meter_id}-sensor.{DOMAIN}_{measurement_name.lower()}"
         )
-        self._attr_name = f"Moj Elektro {measurement_name.replace('_', ' ')}"
+        self._attr_has_entity_name = True
+        self._attr_name = measurement_name.replace("_", " ")
 
         if measurement_name.startswith("casovni_blok"):
             self._attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
