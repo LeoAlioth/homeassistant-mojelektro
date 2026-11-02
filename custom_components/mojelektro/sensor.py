@@ -13,7 +13,6 @@ from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -101,12 +100,11 @@ class MojElektroSensor(CoordinatorEntity, SensorEntity):
         """Return device information for grouping sensors under one device."""
         return {
             "identifiers": {(DOMAIN, self.meter_id)},
-            "name": "Moj Elektro",
+            "name": f"Moj Elektro {self.meter_id}",
             "manufacturer": "Moj Elektro",
             # Home Assistant requires model to be a string, not a set.
             "model": self.meter_id,
             "sw_version": VERSION,
-            "entry_type": DeviceEntryType.SERVICE,
         }
 
     @property
