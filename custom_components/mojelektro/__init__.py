@@ -15,6 +15,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_change
 
 from .const import (
@@ -28,7 +29,7 @@ from .const import (
     SETUP_TAG_BLOCKS_ARRAY,
 )
 
-from .history import async_import_history
+from .history import async_import_history, history_signal
 from .moj_elektro_api import MojElektroApi, MojElektroError
 
 _LOGGER = logging.getLogger(__name__)
@@ -134,6 +135,7 @@ async def _async_import(hass: HomeAssistant, entry: ConfigEntry, start=None) -> 
             await async_import_history(hass, api, start)
         except MojElektroError as err:
             _LOGGER.warning("Moj Elektro statistics import failed: %s", err)
+        async_dispatcher_send(hass, history_signal(entry.entry_id))
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -4,6 +4,21 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.3.3] - 2026-11-02
+
+### Long-term statistics
+
+- import the hourly import and export from Moj Elektro's 15-minute readings into long-term statistics (`mojelektro:<meter>_import` and `_export`), so they can be picked in the Energy dashboard; the history is backfilled on first setup (option, default on), topped up daily at 06:17 and re-imported with the `mojelektro.import_history` service
+- added `Total import` and `Total export` sensors that read the latest running total from those statistics; they have no state class, so Home Assistant makes no statistics of its own for them and the hourly ones stay on the right hours
+
+### Reliability
+
+- retry when the API answers HTTP 429 (5 requests a second per token)
+
+### Device
+
+- the meter is now a regular device named `Moj Elektro <meter id>` instead of a service; an existing service device is replaced on setup
+
 ## [0.2.7] - 2026-09-21
 
 First maintained-fork release.

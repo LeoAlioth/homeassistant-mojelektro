@@ -51,6 +51,11 @@ KINDS = (
 )
 
 
+def history_signal(entry_id: str) -> str:
+    """Dispatcher signal sent after an import, so the total sensors re-read."""
+    return f"{DOMAIN}_history_{entry_id}"
+
+
 def statistic_id(meter_id: str, kind: str) -> str:
     """The external statistic id; ids allow only lowercase letters, digits, _."""
     return f"{DOMAIN}:{re.sub(r'[^a-z0-9]+', '_', meter_id.lower())}_{kind}"
@@ -72,13 +77,18 @@ async def _sum_before(hass: HomeAssistant, stat_id: str, first_hour: datetime) -
     return float(stored[-1]["sum"]) if stored else 0.0
 
 
-async def _last_stored_hour(hass: HomeAssistant, stat_id: str) -> datetime | None:
-    """Start of the newest stored hour, or None when nothing was imported yet."""
+async def async_stored_total(
+    hass: HomeAssistant, meter_id: str, kind: str
+) -> tuple[datetime, float] | None:
+    """Start of the newest stored hour and its running total, None before any import."""
+    stat_id = statistic_id(meter_id, kind)
     last = await get_instance(hass).async_add_executor_job(
         get_last_statistics, hass, 1, stat_id, False, {"sum"}
     )
     rows = last.get(stat_id)
-    return dt_util.utc_from_timestamp(rows[0]["start"]) if rows else None
+    if not rows:
+        return None
+    return dt_util.utc_from_timestamp(rows[0]["start"]), float(rows[0]["sum"])
 
 
 async def async_import_history(
@@ -90,7 +100,8 @@ async def async_import_history(
     and the running totals continue from the hour before the range.
     """
     end = dt_util.now().date()
-    last = await _last_stored_hour(hass, statistic_id(api.meter_id, "import"))
+    stored = await async_stored_total(hass, api.meter_id, "import")
+    last = stored[0] if stored else None
     if start is None:
         if last is not None:
             start = dt_util.as_local(last).date()
