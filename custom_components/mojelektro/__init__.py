@@ -12,6 +12,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_change
@@ -149,6 +150,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.config_entries.async_update_entry(entry, unique_id=meter_id)
 
     _migrate_legacy_sensor_unique_ids(hass, entry)
+
+    # Before 0.3.1 the meter was a "service" device, which Home Assistant lists
+    # apart from devices; drop it so the sensors recreate it as a regular device.
+    device_registry = dr.async_get(hass)
+    old_device = device_registry.async_get_device(
+        identifiers={(DOMAIN, entry.data[CONF_METER_ID])}
+    )
+    if old_device and old_device.entry_type is dr.DeviceEntryType.SERVICE:
+        device_registry.async_remove_device(old_device.id)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
