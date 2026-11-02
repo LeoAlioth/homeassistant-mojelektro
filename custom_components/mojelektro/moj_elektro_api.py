@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 import json
 import aiohttp
@@ -8,6 +9,8 @@ from .hourly import READING_EXPORT, READING_IMPORT
 from .tariff import network_tariff_block
 
 _LOGGER = logging.getLogger(__name__)
+
+RATE_LIMIT_RETRIES = 5
 
 
 class MojElektroError(Exception):
@@ -74,33 +77,46 @@ class MojElektroApi:
         """GET a meter-readings URL and return its interval blocks."""
         headers = {"accept": "application/json", "X-API-TOKEN": self.token}
 
-        try:
-            async with self.session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    _LOGGER.debug("Received meter readings for %s", self.meter_id)
-                    interval_blocks = data.get("intervalBlocks", [])
-                    if not isinstance(interval_blocks, list):
-                        raise MojElektroRequestError(
-                            "Moj Elektro returned an invalid intervalBlocks payload"
-                        )
-                    return interval_blocks
-
-                if response.status in (401, 403):
-                    raise MojElektroAuthError(
-                        f"Moj Elektro authentication failed (HTTP {response.status})"
-                    )
-                if response.status in (400, 404):
-                    raise MojElektroRequestError(
-                        f"Moj Elektro rejected the request (HTTP {response.status})"
-                    )
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            try:
+                async with self.session.get(url, headers=headers) as response:
+                    if response.status == 429 and attempt < RATE_LIMIT_RETRIES:
+                        # The API allows 5 requests a second per token; the sensors
+                        # and the history import can hit that together at setup.
+                        wait = int(response.headers.get("RateLimit-Reset", 1))
+                        _LOGGER.debug("Moj Elektro rate limit, retrying in %s s", wait)
+                    else:
+                        return await self._read_interval_blocks(response)
+            except aiohttp.ClientError as err:
                 raise MojElektroConnectionError(
-                    f"Moj Elektro API returned HTTP {response.status}"
+                    f"Error connecting to Moj Elektro: {err}"
+                ) from err
+            await asyncio.sleep(wait + 1)
+
+
+    async def _read_interval_blocks(self, response):
+        """Turn one meter-readings response into its interval blocks."""
+        if response.status == 200:
+            data = await response.json()
+            _LOGGER.debug("Received meter readings for %s", self.meter_id)
+            interval_blocks = data.get("intervalBlocks", [])
+            if not isinstance(interval_blocks, list):
+                raise MojElektroRequestError(
+                    "Moj Elektro returned an invalid intervalBlocks payload"
                 )
-        except aiohttp.ClientError as err:
-            raise MojElektroConnectionError(
-                f"Error connecting to Moj Elektro: {err}"
-            ) from err
+            return interval_blocks
+
+        if response.status in (401, 403):
+            raise MojElektroAuthError(
+                f"Moj Elektro authentication failed (HTTP {response.status})"
+            )
+        if response.status in (400, 404):
+            raise MojElektroRequestError(
+                f"Moj Elektro rejected the request (HTTP {response.status})"
+            )
+        raise MojElektroConnectionError(
+            f"Moj Elektro API returned HTTP {response.status}"
+        )
 
 
     async def getData(self):
