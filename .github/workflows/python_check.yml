@@ -43,7 +43,7 @@ jobs:
           PY
 
       - name: Run tariff regression tests
-        run: python -m pytest -q tests/test_tariff.py
+        run: python -m pytest -q tests/test_tariff.py tests/test_hourly.py
 
       - name: Check for Python errors
         run: |

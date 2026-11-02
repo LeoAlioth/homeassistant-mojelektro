@@ -1,24 +1,48 @@
 """Moj Elektro integration."""
 
+import asyncio
 import json
+import logging
 import re
 
-from homeassistant.config_entries import ConfigEntry
+import voluptuous as vol
+
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_track_time_change
 
 from .const import (
+    CONF_DECIMAL,
+    CONF_IMPORT_HISTORY,
     CONF_METER_ID,
+    CONF_TOKEN,
     DOMAIN,
     SETUP_TAG_15_ARRAY,
     SETUP_TAG_ARRAY,
     SETUP_TAG_BLOCKS_ARRAY,
 )
 
+from .history import async_import_history, history_signal
+from .moj_elektro_api import MojElektroApi, MojElektroError
+
+_LOGGER = logging.getLogger(__name__)
+
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = [Platform.SENSOR]
+
+SERVICE_IMPORT_HISTORY = "import_history"
+IMPORT_HISTORY_SCHEMA = vol.Schema(
+    {vol.Required("start_date"): cv.date, vol.Optional("config_entry"): cv.string}
+)
+# Moj Elektro publishes a day late, so the morning run finds yesterday complete.
+DAILY_IMPORT_TIME = {"hour": 6, "minute": 17, "second": 0}
 
 
 def _expected_sensor_names() -> list[str]:
@@ -78,7 +102,40 @@ def _migrate_legacy_sensor_unique_ids(
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the integration domain."""
+
+    async def import_history(call: ServiceCall) -> None:
+        entries = [
+            entry
+            for entry in hass.config_entries.async_entries(DOMAIN)
+            if entry.state is ConfigEntryState.LOADED
+            and call.data.get("config_entry") in (None, entry.entry_id)
+        ]
+        if not entries:
+            raise ServiceValidationError("No loaded Moj Elektro entry matches")
+        for entry in entries:
+            await _async_import(hass, entry, call.data["start_date"])
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_IMPORT_HISTORY, import_history, schema=IMPORT_HISTORY_SCHEMA
+    )
     return True
+
+
+async def _async_import(hass: HomeAssistant, entry: ConfigEntry, start=None) -> None:
+    """Import hourly statistics for an entry, one run at a time per entry."""
+    api = MojElektroApi(
+        entry.data[CONF_TOKEN],
+        entry.data[CONF_METER_ID],
+        entry.data.get(CONF_DECIMAL),
+        async_get_clientsession(hass),
+    )
+    lock = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, asyncio.Lock())
+    async with lock:
+        try:
+            await async_import_history(hass, api, start)
+        except MojElektroError as err:
+            _LOGGER.warning("Moj Elektro statistics import failed: %s", err)
+        async_dispatcher_send(hass, history_signal(entry.entry_id))
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -96,7 +153,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _migrate_legacy_sensor_unique_ids(hass, entry)
 
+    # Before 0.3.1 the meter was a "service" device, which Home Assistant lists
+    # apart from devices; drop it so the sensors recreate it as a regular device.
+    device_registry = dr.async_get(hass)
+    old_device = device_registry.async_get_device(
+        identifiers={(DOMAIN, entry.data[CONF_METER_ID])}
+    )
+    if old_device and old_device.entry_type is dr.DeviceEntryType.SERVICE:
+        device_registry.async_remove_device(old_device.id)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    if entry.data.get(CONF_IMPORT_HISTORY, True):
+        entry.async_create_background_task(
+            hass, _async_import(hass, entry), f"{DOMAIN}_import_history"
+        )
+
+        async def daily_import(_now) -> None:
+            await _async_import(hass, entry)
+
+        entry.async_on_unload(
+            async_track_time_change(hass, daily_import, **DAILY_IMPORT_TIME)
+        )
     return True
 
 
