@@ -7,7 +7,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_DECIMAL, CONF_METER_ID, CONF_TOKEN, DOMAIN
+from .const import CONF_DECIMAL, CONF_IMPORT_HISTORY, CONF_METER_ID, CONF_TOKEN, DOMAIN
 from .moj_elektro_api import (
     MojElektroApi,
     MojElektroAuthError,
@@ -75,6 +75,7 @@ class MojeElektroFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_DECIMAL): vol.All(
                         vol.Coerce(int), vol.Range(min=0, max=10)
                     ),
+                    vol.Optional(CONF_IMPORT_HISTORY, default=True): bool,
                 }
             ),
             errors=errors,
