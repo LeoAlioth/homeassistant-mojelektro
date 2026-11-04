@@ -132,7 +132,7 @@ async def _async_import(hass: HomeAssistant, entry: ConfigEntry, start=None) -> 
     lock = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, asyncio.Lock())
     async with lock:
         try:
-            await async_import_history(hass, api, start)
+            await async_import_history(hass, entry.entry_id, api, start)
         except MojElektroError as err:
             _LOGGER.warning("Moj Elektro statistics import failed: %s", err)
         async_dispatcher_send(hass, history_signal(entry.entry_id))

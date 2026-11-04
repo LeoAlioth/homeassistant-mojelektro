@@ -21,7 +21,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .const import CONF_DECIMAL, CONF_METER_ID, CONF_TOKEN, DOMAIN, VERSION
-from .history import async_stored_total, history_signal, total_unique_id
+from .history import async_imported_totals, history_signal, total_unique_id
 from .moj_elektro_api import (
     MojElektroApi,
     MojElektroAuthError,
@@ -87,18 +87,19 @@ def _device_info(meter_id: str) -> dict:
 
 
 class MojElektroTotalSensor(SensorEntity):
-    """Lifetime import or export, read from the sensor's own imported statistics.
+    """Lifetime import or export: the running total where the imported data ends.
 
-    The history import writes the hourly statistics of these sensors. They have
-    no state class on purpose: the totals arrive a day late, and a state class
-    would make Home Assistant book each update into the hour it arrived in,
-    instead of the hours the energy was used.
+    The history import writes the hourly statistics of these sensors and lines
+    up Home Assistant's own 5-minute statistics with the new total before the
+    state moves, so the day-late update is not booked into the hour it arrived in.
+    The state is unknown until the first import.
     """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:transmission-tower"
     _attr_suggested_display_precision = 2
 
@@ -122,14 +123,11 @@ class MojElektroTotalSensor(SensorEntity):
         await self._async_refresh()
 
     async def _async_refresh(self) -> None:
-        stored = await async_stored_total(self.hass, self.entity_id)
-        if stored:
-            hour, total = stored
+        imported = await async_imported_totals(self.hass, self._entry_id)
+        if self._kind in imported:
+            through, total = imported[self._kind]
             self._attr_native_value = total
-            # The last hour is covered up to its end.
-            self._attr_extra_state_attributes = {
-                "data_through": (hour + timedelta(hours=1)).isoformat()
-            }
+            self._attr_extra_state_attributes = {"data_through": through.isoformat()}
         self.async_write_ha_state()
 
 

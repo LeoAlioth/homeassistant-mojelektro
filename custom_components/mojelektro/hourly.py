@@ -58,3 +58,31 @@ def cumulative(hours: dict[datetime, float], base_sum: float) -> list[tuple[date
         total += value
         rows.append((hour, total))
     return rows
+
+
+# Home Assistant compiles the 5-minute period [t - 5 min, t) at t + 10 s.
+COMPILE_PERIOD = timedelta(minutes=5)
+COMPILE_DONE = timedelta(seconds=15)
+
+
+def flat_hours(through: datetime, now: datetime) -> list[datetime]:
+    """Hour starts from ``through`` up to, not including, the hour ``now`` is in."""
+    current = now.replace(minute=0, second=0, microsecond=0)
+    hours = []
+    hour = through
+    while hour < current:
+        hours.append(hour)
+        hour += timedelta(hours=1)
+    return hours
+
+
+def compile_wait(now: datetime) -> float:
+    """Seconds until Home Assistant has compiled the 5-minute period that just ended."""
+    elapsed = timedelta(minutes=now.minute % 5, seconds=now.second, microseconds=now.microsecond)
+    return max(0.0, (COMPILE_DONE - elapsed).total_seconds())
+
+
+def last_compiled_period(now: datetime) -> datetime:
+    """Start of the newest 5-minute period compiled by ``now`` (after ``compile_wait``)."""
+    end = now.replace(minute=now.minute - now.minute % 5, second=0, microsecond=0)
+    return end - COMPILE_PERIOD

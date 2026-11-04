@@ -5,9 +5,12 @@ from datetime import date, datetime, timedelta, timezone
 from custom_components.mojelektro.hourly import (
     READING_EXPORT,
     READING_IMPORT,
+    compile_wait,
     cumulative,
     date_chunks,
+    flat_hours,
     hourly_kwh,
+    last_compiled_period,
 )
 
 
@@ -79,3 +82,21 @@ def test_ranges_never_exceed_what_the_api_accepts():
     assert all((stop - start).days <= 35 for start, stop in chunks)
     assert all(a[1] == b[0] for a, b in zip(chunks, chunks[1:]))
     assert date_chunks(date(2026, 11, 2), date(2026, 11, 2)) == []
+
+
+def test_flat_hours_stop_before_the_hour_home_assistant_still_compiles():
+    hours = flat_hours(utc(2026, 11, 4, 23), utc(2026, 11, 5, 5, 17))
+    assert hours[0] == utc(2026, 11, 4, 23) and hours[-1] == utc(2026, 11, 5, 4)
+    assert len(hours) == 6
+    assert flat_hours(utc(2026, 11, 5, 5), utc(2026, 11, 5, 5, 59)) == []
+
+
+def test_writes_wait_until_the_period_that_just_ended_is_compiled():
+    assert compile_wait(utc(2026, 11, 5, 5, 15, 3)) == 12.0
+    assert compile_wait(utc(2026, 11, 5, 5, 15, 20)) == 0.0
+    assert compile_wait(utc(2026, 11, 5, 5, 17)) == 0.0
+
+
+def test_the_newest_compiled_period_is_the_one_before_the_current():
+    assert last_compiled_period(utc(2026, 11, 5, 5, 17, 30)) == utc(2026, 11, 5, 5, 10)
+    assert last_compiled_period(utc(2026, 11, 5, 6, 0, 20)) == utc(2026, 11, 5, 5, 55)
