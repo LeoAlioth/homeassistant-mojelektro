@@ -4,6 +4,11 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.3.5] - 2026-11-05
+
+- the `Total import` and `Total export` sensors have the `total_increasing` state class again, so Home Assistant no longer raises the "entity no longer has a state class" repair for them; before the state moves to the new total, the import writes the hours since the end of the data flat at that total and gives Home Assistant's newest 5-minute statistic the same value, so the day-late update is still not booked into the hour it arrived in
+- the end of the imported data and its running total are kept in the integration's own storage; the sensors show that total (unknown until the first import), and installs coming from 0.3.4 fetch the last week again once
+
 ## [0.3.4] - 2026-11-02
 
 - the hourly history is now written as the long-term statistics of the `Total import` and `Total export` sensors instead of the separate `mojelektro:` statistics, so cards that read a sensor's statistics (statistics graphs, Sankey charts that follow the date selector) can show it; the sensors still have no state class, so Home Assistant adds no statistics of its own for them
