@@ -4,6 +4,12 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.3.6] - 2026-11-12
+
+- new `Current block` sensor (the network tariff block 1-5 in force now) and `Current block power` sensor (that block's contracted power, kW, with the block as an attribute); both are worked out locally from the tariff schedule, so they stay right while the API is unreachable
+- the tariff schedule is kept per date it applies from: the hours in force until the end of 2026 (higher-season workday block 1 = 7-14 and 16-20) and AGEN-RS's new hours from 1 January 2027 (block 1 = 6-12 and 17-20, two blocks on work-free days). 0.2.7 had put the 2027 hours in force early, so the `daily input blok N` sensors split the day by the wrong hours until now
+- the meter device's manufacturer is the fork's maintainer, Anže Košir, instead of "Moj Elektro"
+
 ## [0.3.5] - 2026-11-05
 
 - the `Total import` and `Total export` sensors have the `total_increasing` state class again, so Home Assistant no longer raises the "entity no longer has a state class" repair for them; before the state moves to the new total, the import writes the hours since the end of the data flat at that total and gives Home Assistant's newest 5-minute statistic the same value, so the day-late update is still not booked into the hour it arrived in
