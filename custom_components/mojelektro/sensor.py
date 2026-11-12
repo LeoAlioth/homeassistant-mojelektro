@@ -19,9 +19,11 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_DECIMAL, CONF_METER_ID, CONF_TOKEN, DOMAIN, VERSION
 from .history import async_imported_totals, history_signal, total_unique_id
+from .tariff import block_at
 from .moj_elektro_api import (
     MojElektroApi,
     MojElektroAuthError,
@@ -71,6 +73,10 @@ async def async_setup_entry(
         MojElektroTotalSensor(entry.entry_id, meter_id, kind)
         for kind in ("import", "export")
     ]
+    sensors += [
+        MojElektroCurrentBlockSensor(coordinator, meter_id),
+        MojElektroCurrentBlockPowerSensor(coordinator, meter_id),
+    ]
     async_add_entities(sensors)
 
 
@@ -79,7 +85,7 @@ def _device_info(meter_id: str) -> dict:
     return {
         "identifiers": {(DOMAIN, meter_id)},
         "name": f"Moj Elektro {meter_id}",
-        "manufacturer": "Moj Elektro",
+        "manufacturer": "Anže Košir",
         # Home Assistant requires model to be a string, not a set.
         "model": meter_id,
         "sw_version": VERSION,
@@ -129,6 +135,63 @@ class MojElektroTotalSensor(SensorEntity):
             self._attr_native_value = total
             self._attr_extra_state_attributes = {"data_through": through.isoformat()}
         self.async_write_ha_state()
+
+
+class MojElektroCurrentBlockSensor(CoordinatorEntity, SensorEntity):
+    """The network tariff block (1-5) in force now, from the tariff schedule.
+
+    Worked out locally (season, work-free day, hour; tariff.py), so it is right
+    even while the API is unreachable; it moves on the coordinator's 30 s beat.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:clock-time-four-outline"
+
+    def __init__(self, coordinator, meter_id: str) -> None:
+        super().__init__(coordinator)
+        self.meter_id = meter_id
+        self._attr_unique_id = f"{meter_id}-current_block"
+        self._attr_name = "Current block"
+        self._attr_device_info = _device_info(meter_id)
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> int:
+        return block_at(dt_util.now())
+
+
+class MojElektroCurrentBlockPowerSensor(CoordinatorEntity, SensorEntity):
+    """The contracted (agreed) power of the block in force now, in kW."""
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_icon = "mdi:flash"
+
+    def __init__(self, coordinator, meter_id: str) -> None:
+        super().__init__(coordinator)
+        self.meter_id = meter_id
+        self._attr_unique_id = f"{meter_id}-current_block_power"
+        self._attr_name = "Current block power"
+        self._attr_device_info = _device_info(meter_id)
+        self._last_known: dict[int, float] = {}
+
+    @property
+    def native_value(self) -> float | None:
+        block = block_at(dt_util.now())
+        try:
+            self._last_known[block] = float(self.coordinator.data.get(f"casovni_blok_{block}"))
+        except (TypeError, ValueError):
+            pass
+        # contracted powers change at most monthly: keep the last one through an API outage
+        return self._last_known.get(block)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"block": block_at(dt_util.now())}
 
 
 class MojElektroSensor(CoordinatorEntity, SensorEntity):
