@@ -8,11 +8,13 @@
           "token": "Token",
           "meter_id": "Meter ID (EIMM)",
           "decimal": "Decimal places for sensors.",
-          "import_history": "Import hourly history into statistics"
+          "import_history": "Import hourly history into statistics",
+          "user_group": "Network-charge user group (0-4)"
         },
         "data_description": {
           "decimal": "Leave empty for default (4) or enter decimal places for energy sensors (0-10).",
-          "import_history": "Import hourly import and export (from the oldest date Moj Elektro still serves) into long-term statistics, and keep adding each new day. Pick them in the Energy dashboard as \"Moj Elektro import\" and \"Moj Elektro export\"."
+          "import_history": "Import hourly import and export (from the oldest date Moj Elektro still serves) into long-term statistics, and keep adding each new day. Pick them in the Energy dashboard as \"Moj Elektro import\" and \"Moj Elektro export\".",
+          "user_group": "Network-charge user group for the fee estimate: 0 households and small business on low voltage (default), 1 low voltage at a transformer-station busbar, 2 medium voltage outlet, 3 medium voltage at a substation busbar, 4 high voltage."
         }
       },
       "reauth_confirm": {
@@ -45,6 +47,19 @@
         "config_entry": {
           "name": "Meter",
           "description": "Config entry to import for. All loaded meters if empty."
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Moj Elektro options",
+        "data": {
+          "user_group": "Network-charge user group (0-4)"
+        },
+        "data_description": {
+          "user_group": "Network-charge user group for the fee estimate: 0 households and small business on low voltage (default), 1 low voltage at a transformer-station busbar, 2 medium voltage outlet, 3 medium voltage at a substation busbar, 4 high voltage."
         }
       }
     }

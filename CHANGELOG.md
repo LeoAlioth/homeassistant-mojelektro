@@ -4,6 +4,13 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.4.0] - unreleased
+
+- network charges for the running month, worked out from the 15-minute readings (up to yesterday; refreshed every three hours and at 06:32): `Monthly peak block N` (kW, with when it happened), `Peak headroom block N` (agreed power minus peak, negative once over), `Excess power block N` (root of the summed squared overruns, with the number of intervals over), an `Over agreed power` problem binary sensor with per-block attributes, and `Last interval power import` / `export`
+- `Network fee estimate` (EUR, no VAT): power part plus energy part for the month so far, with the parts, the prices used and what is left out as attributes. The excess charge is an attribute only, because it is billed only if the agreed power was changed. Prices are the Energy Agency's 2026 table for user groups 0-4; January and February 2027 reuse them and are flagged estimated; months with no table give no fee
+- new option: network-charge user group (0-4, default 0 = households), in setup and under Configure
+- the data coordinator is created when the entry loads and shared through `entry.runtime_data`
+
 ## [0.3.8] - 2026-11-17
 
 - the meter device's manufacturer is the maintainer's GitHub name, LeoAlioth, instead of a personal name; Home Assistant shows it after the next update and restart

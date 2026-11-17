@@ -18,7 +18,7 @@ Home Assistant custom integration for electricity-meter data from the Slovenian 
 
 **Maintained fork:** `LeoAlioth/homeassistant-mojelektro`  
 **Maintainer:** [`LeoAlioth`](https://github.com/LeoAlioth)  
-**Current version:** `0.3.6`  
+**Current version:** `0.4.0`  
 **Home Assistant baseline:** `2025.1+`  
 **API:** `https://api.informatika.si/mojelektro/v1`
 
@@ -32,10 +32,17 @@ The 0.3.x series imports hourly import/export history into long-term statistics 
 - peak/off-peak tariff readings where available
 - daily consumption grouped by network tariff block
 - contracted power for blocks 1-5
+- network charges for the running month (0.4.0): the monthly peak per block and its headroom against the contracted power, the excess power (root of the summed squared overruns, per the network-charge methodology) with the number of intervals over, an "over agreed power" problem sensor, the last 15-minute import and export power, and an estimate of the month's network fee in EUR
 - Home Assistant UI config flow
 - configurable decimal precision
 - automatic token reauthentication flow
 - stable entities across temporary partial API responses
+
+### Network-charge figures
+
+The figures follow the Slovenian network-charge methodology: a 15-minute interval's power is its energy divided by 0.25 h, a block's reached power is the highest such value in the calendar month, and the excess power is `sqrt(sum((P - agreed)^2))` over the intervals above the agreed power. Pick your **network-charge user group** (0-4, default 0 = households) when adding the integration, or later under *Configure*; it selects the price table.
+
+The **network fee estimate** is the agreed power times the monthly power price plus the energy taken so far times the energy price, in EUR without VAT. It leaves out the connection-power charge, the contributions and VAT. Excess power is only billed by the network operator if the agreed power was changed, so the excess charge is shown as the `excess_if_billed` attribute and is not in the sensor's value. Prices are the Energy Agency's table of 1 March - 31 December 2026 (in `prices.py`; there is no machine-readable source); January and February 2027 use the 2026 prices and say so in the `prices_estimated` attribute, and the fee is unavailable for months without a table. The data is a day late, so the month's figures run up to yesterday (`data_through`).
 
 Moj Elektro is **not a real-time source**. Meter readings are typically available with an approximately **24-hour delay**. Data can also be incomplete or temporarily inaccurate while the upstream service aggregates readings, especially during the overnight period (roughly midnight to 06:00). Dashboards and automations should therefore not treat the 15-minute sensors as near-real-time measurements.
 

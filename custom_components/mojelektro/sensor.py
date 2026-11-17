@@ -1,6 +1,5 @@
 """Sensor platform for the Moj Elektro integration."""
 
-from datetime import timedelta
 import logging
 
 from homeassistant.components.sensor import (
@@ -11,24 +10,15 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-    UpdateFailed,
-)
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_DECIMAL, CONF_METER_ID, CONF_TOKEN, DOMAIN, VERSION
+from .billing import BLOCKS, QUARTER
+from .const import CONF_METER_ID, DOMAIN, VERSION
 from .history import async_imported_totals, history_signal, total_unique_id
+from .prices import excess_weight, network_fee, prices_for
 from .tariff import block_at
-from .moj_elektro_api import (
-    MojElektroApi,
-    MojElektroAuthError,
-    MojElektroError,
-)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,33 +27,9 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ) -> None:
     """Set up Moj Elektro sensors from a config entry."""
-    token = entry.data[CONF_TOKEN]
     meter_id = entry.data[CONF_METER_ID]
-    decimal = entry.data.get(CONF_DECIMAL)
-    session = async_get_clientsession(hass)
-
-    api = MojElektroApi(token, meter_id, decimal, session)
-
-    async def async_update_data():
-        """Fetch data and translate API errors to Home Assistant errors."""
-        try:
-            return await api.getData()
-        except MojElektroAuthError as err:
-            raise ConfigEntryAuthFailed("Moj Elektro authentication failed") from err
-        except MojElektroError as err:
-            raise UpdateFailed(str(err)) from err
-        except Exception as err:
-            raise UpdateFailed(f"Unexpected Moj Elektro update error: {err}") from err
-
-    coordinator = DataUpdateCoordinator(
-        hass,
-        _LOGGER,
-        name="mojelektro_sensor",
-        update_method=async_update_data,
-        update_interval=timedelta(seconds=30),
-    )
-
-    await coordinator.async_config_entry_first_refresh()
+    runtime = entry.runtime_data
+    coordinator = runtime.coordinator
 
     sensors = [
         MojElektroSensor(coordinator, measurement, meter_id)
@@ -76,6 +42,17 @@ async def async_setup_entry(
     sensors += [
         MojElektroCurrentBlockSensor(coordinator, meter_id),
         MojElektroCurrentBlockPowerSensor(coordinator, meter_id),
+    ]
+    for block in BLOCKS:
+        sensors += [
+            MonthlyPeakSensor(runtime, meter_id, block),
+            PeakHeadroomSensor(runtime, meter_id, block),
+            ExcessPowerSensor(runtime, meter_id, block),
+        ]
+    sensors += [
+        LastIntervalPowerSensor(runtime, meter_id, "import"),
+        LastIntervalPowerSensor(runtime, meter_id, "export"),
+        NetworkFeeSensor(runtime, meter_id),
     ]
     async_add_entities(sensors)
 
@@ -192,6 +169,170 @@ class MojElektroCurrentBlockPowerSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         return {"block": block_at(dt_util.now())}
+
+
+class MonthEntity(CoordinatorEntity, SensorEntity):
+    """Base of the entities worked out from the month's 15-minute readings.
+
+    They follow the month coordinator and read the agreed powers from the main one
+    when asked, so a changed agreed power shows at the next read.
+    """
+
+    _attr_has_entity_name = True
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, runtime, meter_id: str, key: str, name: str) -> None:
+        super().__init__(runtime.month)
+        self._runtime = runtime
+        self.meter_id = meter_id
+        self._attr_unique_id = f"{meter_id}-{key}"
+        self._attr_name = name
+        self._attr_device_info = _device_info(meter_id)
+
+
+class _BlockPowerSensor(MonthEntity):
+    _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_icon = "mdi:flash"
+
+    def __init__(self, runtime, meter_id: str, block: int, key: str, name: str) -> None:
+        super().__init__(runtime, meter_id, f"{key}_blok_{block}", f"{name} block {block}")
+        self._block = block
+
+    @property
+    def _figure(self):
+        return self._runtime.figures()[self._block]
+
+
+class MonthlyPeakSensor(_BlockPowerSensor):
+    """Highest 15-minute power of the month so far in this block (what is billed)."""
+
+    def __init__(self, runtime, meter_id: str, block: int) -> None:
+        super().__init__(runtime, meter_id, block, "monthly_peak", "Monthly peak")
+
+    @property
+    def native_value(self) -> float | None:
+        return self._figure.peak
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        peak_at = self._figure.peak_at
+        return {
+            "peak_at": peak_at.isoformat() if peak_at else None,
+            "data_through": _iso(self.coordinator.data.through),
+        }
+
+
+class PeakHeadroomSensor(_BlockPowerSensor):
+    """Agreed power minus the month's peak; negative once the peak went over."""
+
+    def __init__(self, runtime, meter_id: str, block: int) -> None:
+        super().__init__(runtime, meter_id, block, "peak_headroom", "Peak headroom")
+
+    @property
+    def native_value(self) -> float | None:
+        return self._figure.headroom
+
+
+class ExcessPowerSensor(_BlockPowerSensor):
+    """Excess power of the month so far: the root of the summed squared overruns."""
+
+    _attr_icon = "mdi:flash-alert"
+
+    def __init__(self, runtime, meter_id: str, block: int) -> None:
+        super().__init__(runtime, meter_id, block, "excess_power", "Excess power")
+
+    @property
+    def native_value(self) -> float | None:
+        return self._figure.excess
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"intervals_over": len(self._figure.over)}
+
+
+class LastIntervalPowerSensor(MonthEntity):
+    """Average power of the newest finished 15-minute interval the API has."""
+
+    _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_icon = "mdi:flash"
+
+    def __init__(self, runtime, meter_id: str, kind: str) -> None:
+        super().__init__(
+            runtime, meter_id, f"last_interval_power_{kind}", f"Last interval power {kind}"
+        )
+        self._kind = kind
+
+    @property
+    def _interval(self):
+        data = self.coordinator.data
+        return data.last_import if self._kind == "import" else data.last_export
+
+    @property
+    def native_value(self) -> float | None:
+        return self._interval.kw if self._interval else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        interval = self._interval
+        return {"interval_end": _iso(interval.start + QUARTER) if interval else None}
+
+
+class NetworkFeeSensor(MonthEntity):
+    """Estimated network fee of the month so far, in EUR without VAT.
+
+    Power part (agreed power times price) plus energy part (kWh taken so far times
+    price). Excluded: the connection-power charge, contributions and VAT. The excess
+    charge is shown as an attribute: it is billed only if the agreed power was changed.
+    """
+
+    _attr_native_unit_of_measurement = "EUR"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_icon = "mdi:cash"
+
+    def __init__(self, runtime, meter_id: str) -> None:
+        super().__init__(runtime, meter_id, "network_fee_month_estimate", "Network fee estimate")
+
+    def _estimate(self):
+        month_first = self.coordinator.data.month_first
+        prices = prices_for(self._runtime.user_group, month_first)
+        if prices is None:
+            return None, None
+        fee = network_fee(prices, excess_weight(month_first.year), self._runtime.figures())
+        return prices, fee
+
+    @property
+    def native_value(self) -> float | None:
+        _, fee = self._estimate()
+        return round(fee.total, 2) if fee else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        prices, fee = self._estimate()
+        attrs = {
+            "user_group": self._runtime.user_group,
+            "data_through": _iso(self.coordinator.data.through),
+            "excludes": ["connection power", "contributions", "VAT"],
+        }
+        if prices:
+            attrs |= {
+                "prices_from": prices.source,
+                "prices_estimated": prices.estimated,
+                "power_price": prices.power,
+                "energy_price": prices.energy,
+            }
+        if fee:
+            attrs |= {
+                "power_part": round(fee.power, 2),
+                "energy_part": round(fee.energy, 2),
+                "excess_if_billed": round(fee.excess, 2),
+            }
+        return attrs
+
+
+def _iso(moment) -> str | None:
+    return moment.isoformat() if moment else None
 
 
 class MojElektroSensor(CoordinatorEntity, SensorEntity):

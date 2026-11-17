@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from datetime import timedelta
 import re
 
 import voluptuous as vol
@@ -10,19 +11,22 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import ConfigEntryAuthFailed, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
     CONF_DECIMAL,
     CONF_IMPORT_HISTORY,
     CONF_METER_ID,
     CONF_TOKEN,
+    CONF_USER_GROUP,
+    DEFAULT_USER_GROUP,
     DOMAIN,
     SETUP_TAG_15_ARRAY,
     SETUP_TAG_ARRAY,
@@ -30,12 +34,13 @@ from .const import (
 )
 
 from .history import async_import_history, history_signal
-from .moj_elektro_api import MojElektroApi, MojElektroError
+from .moj_elektro_api import MojElektroApi, MojElektroAuthError, MojElektroError
+from .month import MojElektroRuntime, MonthCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 SERVICE_IMPORT_HISTORY = "import_history"
 IMPORT_HISTORY_SCHEMA = vol.Schema(
@@ -43,6 +48,7 @@ IMPORT_HISTORY_SCHEMA = vol.Schema(
 )
 # Moj Elektro publishes a day late, so the morning run finds yesterday complete.
 DAILY_IMPORT_TIME = {"hour": 6, "minute": 17, "second": 0}
+DAILY_MONTH_TIME = {"hour": 6, "minute": 32, "second": 0}
 
 
 def _expected_sensor_names() -> list[str]:
@@ -162,7 +168,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if old_device and old_device.entry_type is dr.DeviceEntryType.SERVICE:
         device_registry.async_remove_device(old_device.id)
 
+    api = MojElektroApi(
+        entry.data[CONF_TOKEN],
+        entry.data[CONF_METER_ID],
+        entry.data.get(CONF_DECIMAL),
+        async_get_clientsession(hass),
+    )
+
+    async def async_update_data():
+        """Fetch data and translate API errors to Home Assistant errors."""
+        try:
+            return await api.getData()
+        except MojElektroAuthError as err:
+            raise ConfigEntryAuthFailed("Moj Elektro authentication failed") from err
+        except MojElektroError as err:
+            raise UpdateFailed(str(err)) from err
+        except Exception as err:
+            raise UpdateFailed(f"Unexpected Moj Elektro update error: {err}") from err
+
+    coordinator = DataUpdateCoordinator(
+        hass,
+        _LOGGER,
+        config_entry=entry,
+        name="mojelektro_sensor",
+        update_method=async_update_data,
+        update_interval=timedelta(seconds=30),
+    )
+    await coordinator.async_config_entry_first_refresh()
+
+    # The month's power figures are optional: a failure here must not stop the meter's
+    # other sensors, so refresh without raising and let the entities show unavailable.
+    month = MonthCoordinator(hass, entry, api)
+    await month.async_refresh()
+    entry.runtime_data = MojElektroRuntime(
+        api=api,
+        coordinator=coordinator,
+        month=month,
+        user_group=entry.options.get(
+            CONF_USER_GROUP, entry.data.get(CONF_USER_GROUP, DEFAULT_USER_GROUP)
+        ),
+    )
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    async def daily_month(_now) -> None:
+        await month.async_refresh()
+
+    entry.async_on_unload(
+        async_track_time_change(hass, daily_month, **DAILY_MONTH_TIME)
+    )
 
     if entry.data.get(CONF_IMPORT_HISTORY, True):
         entry.async_create_background_task(
@@ -176,6 +231,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async_track_time_change(hass, daily_import, **DAILY_IMPORT_TIME)
         )
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload so a changed user group reaches the fee estimate."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

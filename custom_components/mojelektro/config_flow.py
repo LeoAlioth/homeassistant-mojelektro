@@ -5,9 +5,19 @@ import logging
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_DECIMAL, CONF_IMPORT_HISTORY, CONF_METER_ID, CONF_TOKEN, DOMAIN
+from .const import (
+    CONF_DECIMAL,
+    CONF_IMPORT_HISTORY,
+    CONF_METER_ID,
+    CONF_TOKEN,
+    CONF_USER_GROUP,
+    DEFAULT_USER_GROUP,
+    DOMAIN,
+)
+from .prices import USER_GROUPS
 from .moj_elektro_api import (
     MojElektroApi,
     MojElektroAuthError,
@@ -16,6 +26,26 @@ from .moj_elektro_api import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_USER_GROUP = vol.All(vol.Coerce(int), vol.In(USER_GROUPS))
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Change the network-charge user group the fee estimate uses."""
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        current = self.config_entry.options.get(
+            CONF_USER_GROUP,
+            self.config_entry.data.get(CONF_USER_GROUP, DEFAULT_USER_GROUP),
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {vol.Required(CONF_USER_GROUP, default=current): _USER_GROUP}
+            ),
+        )
 
 
 class MojeElektroFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
@@ -76,10 +106,17 @@ class MojeElektroFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         vol.Coerce(int), vol.Range(min=0, max=10)
                     ),
                     vol.Optional(CONF_IMPORT_HISTORY, default=True): bool,
+                    vol.Optional(CONF_USER_GROUP, default=DEFAULT_USER_GROUP): _USER_GROUP,
                 }
             ),
             errors=errors,
         )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        """The user group can be changed after setup."""
+        return OptionsFlowHandler()
 
     async def async_step_reauth(self, entry_data):
         """Start reauthentication after the API rejects the stored token."""

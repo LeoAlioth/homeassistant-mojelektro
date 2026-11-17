@@ -1,10 +1,12 @@
 # Configuration for MojElektroApi
 DOMAIN = "mojelektro"
-VERSION = "0.3.8"
+VERSION = "0.4.0"
 CONF_TOKEN = "token"  # Adjusted from TOKEN to CONF_TOKEN
 CONF_METER_ID = "meter_id"  # Adjusted from METER_ID to CONF_METER_ID
 CONF_DECIMAL = "decimal"
 CONF_IMPORT_HISTORY = "import_history"
+CONF_USER_GROUP = "user_group"  # network-charge user group 0-4, 0 = households
+DEFAULT_USER_GROUP = 0
 
 SETUP_TAG_BLOCKS_ARRAY = '[{"oznaka": "blok_1", "sensor": "daily_input_blok_1"}, {"oznaka": "blok_2", "sensor": "daily_input_blok_2"}, {"oznaka": "blok_3", "sensor": "daily_input_blok_3"}, {"oznaka": "blok_4", "sensor": "daily_input_blok_4"}, {"oznaka": "blok_5", "sensor": "daily_input_blok_5"}]'
 SETUP_TAG_15_ARRAY = '[{"oznaka": "A+", "sensor": "15min_input"}, {"oznaka": "A-", "sensor": "15min_output"}]'
