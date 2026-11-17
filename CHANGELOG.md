@@ -4,6 +4,10 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.3.7] - 2026-11-17
+
+- the integration's documentation and issue tracker links, and the README's badges, install URL and issues link, point to this fork (`LeoAlioth/homeassistant-mojelektro`); the README describes the 0.3.x series
+
 ## [0.3.6] - 2026-11-12
 
 - new `Current block` sensor (the network tariff block 1-5 in force now) and `Current block power` sensor (that block's contracted power, kW, with the block as an attribute); both are worked out locally from the tariff schedule, so they stay right while the API is unreachable

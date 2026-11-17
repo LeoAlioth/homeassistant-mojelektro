@@ -1,28 +1,28 @@
 # Moj Elektro for Home Assistant
 
-[![Version](https://img.shields.io/badge/version-0.2.7-blue.svg)](https://github.com/jursko90/homeassistant-mojelektro)
-[![Python check](https://github.com/jursko90/homeassistant-mojelektro/actions/workflows/python_check.yml/badge.svg)](https://github.com/jursko90/homeassistant-mojelektro/actions/workflows/python_check.yml)
-[![Release validation](https://github.com/jursko90/homeassistant-mojelektro/actions/workflows/release_validation.yml/badge.svg)](https://github.com/jursko90/homeassistant-mojelektro/actions/workflows/release_validation.yml)
+[![Version](https://img.shields.io/badge/version-0.3.6-blue.svg)](https://github.com/LeoAlioth/homeassistant-mojelektro)
+[![Python check](https://github.com/LeoAlioth/homeassistant-mojelektro/actions/workflows/python_check.yml/badge.svg)](https://github.com/LeoAlioth/homeassistant-mojelektro/actions/workflows/python_check.yml)
+[![Release validation](https://github.com/LeoAlioth/homeassistant-mojelektro/actions/workflows/release_validation.yml/badge.svg)](https://github.com/LeoAlioth/homeassistant-mojelektro/actions/workflows/release_validation.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/jursko90/homeassistant-mojelektro)](https://github.com/jursko90/homeassistant-mojelektro/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/LeoAlioth/homeassistant-mojelektro)](https://github.com/LeoAlioth/homeassistant-mojelektro/stargazers)
 
 Home Assistant custom integration for electricity-meter data from the Slovenian **Moj Elektro** service using the official Informatika.si API.
 
 > [!IMPORTANT]
-> **This repository is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro).**
+> **This repository is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro), by way of [jursko90/homeassistant-mojelektro](https://github.com/jursko90/homeassistant-mojelektro).**
 >
 > The original project, authorship and MIT license are preserved. This fork exists to keep the integration compatible with current Home Assistant releases, fix outstanding issues and continue development against the current Moj Elektro API.
 
 ## Current status
 
-**Maintained fork:** `jursko90/homeassistant-mojelektro`  
-**Maintainer:** [`jursko90`](https://github.com/jursko90)  
-**Current version:** `0.2.7`  
+**Maintained fork:** `LeoAlioth/homeassistant-mojelektro`  
+**Maintainer:** [`LeoAlioth`](https://github.com/LeoAlioth)  
+**Current version:** `0.3.6`  
 **Home Assistant baseline:** `2025.1+`  
 **API:** `https://api.informatika.si/mojelektro/v1`
 
-Version 0.2.7 is primarily a **compatibility and stability release**. New API functionality is planned for the 0.3.x series.
+The 0.3.x series imports hourly import/export history into long-term statistics and adds total import/export sensors and the current network tariff block sensors. See [CHANGELOG.md](CHANGELOG.md).
 
 ## What the integration currently provides
 
@@ -91,7 +91,7 @@ This fork is installed as a **custom HACS repository**.
 2. Open the menu and choose **Custom repositories**.
 3. Add:
 
-   `https://github.com/jursko90/homeassistant-mojelektro`
+   `https://github.com/LeoAlioth/homeassistant-mojelektro`
 
 4. Select category **Integration**.
 5. Install **Moj Elektro**.
@@ -180,9 +180,9 @@ The original integration was created and maintained by **frlequ**. If the origin
 
 ## Issues and contributions
 
-For problems specific to this maintained fork, use the fork issue tracker once GitHub Issues are enabled for the repository:
+For problems specific to this maintained fork, use the fork issue tracker:
 
-https://github.com/jursko90/homeassistant-mojelektro/issues
+https://github.com/LeoAlioth/homeassistant-mojelektro/issues
 
 When reporting a problem, please include:
 
