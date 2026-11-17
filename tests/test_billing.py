@@ -10,6 +10,7 @@ from custom_components.mojelektro.billing import (
     Interval,
     MonthData,
     block_figures,
+    blocks_in_month,
     build_month,
     excess_power,
     read_intervals,
@@ -133,3 +134,9 @@ def test_an_empty_month_has_no_end_and_no_peaks():
     data = MonthData(date(2026, 2, 1))
     assert data.through is None
     assert all(f.peak is None for f in block_figures(data, {}).values())
+
+
+def test_the_blocks_that_occur_depend_on_the_season():
+    # Higher season (Nov-Feb): blocks 1-4. Lower season (Mar-Oct): blocks 2-5.
+    assert blocks_in_month(date(2026, 11, 1)) == {1, 2, 3, 4}
+    assert blocks_in_month(date(2026, 7, 1)) == {2, 3, 4, 5}

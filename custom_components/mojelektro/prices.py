@@ -7,6 +7,9 @@ distribucijski sistem" (transmission and distribution together, without taxes an
 levies), published in Uradni list RS 105/25 and as a table on agen-rs.si. There is
 no machine-readable source, so a new tariff year is a new row of ``PERIODS``.
 
+Only the power charges are modelled; the energy prices stay in the table for a later
+whole-bill estimate, where net metering has to be applied to them first.
+
 The phase-in of block 1's power price (50 %, 70 % and 90 % of the target in the
 winter months of 2025-2027, 56.b člen) is already in the published price of the
 months it applies to, so it is not modelled: ``reduced_months`` names those months.
@@ -137,33 +140,43 @@ def excess_weight(year: int) -> float:
 
 
 @dataclass(frozen=True)
-class FeeParts:
-    """A month's network fee in EUR, without VAT."""
+class PowerCharge:
+    """A month's charge for power in EUR, without VAT, and what it is based on."""
 
-    power: float
-    energy: float
-    excess: float
-
-    @property
-    def total(self) -> float:
-        """Power and energy; the excess is billed only if the agreed power was changed."""
-        return self.power + self.energy
+    total: float
+    basis: str  # "agreed", or "reached" for a user with no agreed power
+    per_block: dict[int, float]  # kW charged in each block that occurs in the month
 
 
-def network_fee(
-    prices: Prices, weight: float, figures: dict[int, BlockFigure]
-) -> FeeParts | None:
-    """The month's fee, or None while any block's agreed power is unknown.
+def power_charge(
+    prices: Prices, figures: dict[int, BlockFigure], blocks: frozenset[int]
+) -> PowerCharge | None:
+    """The agreed-power charge: kW times the block's monthly price, per block in the month.
 
-    Power: agreed power times the block's monthly price. Energy: the month's taken
-    kWh times the block's energy price. Excess: the weighting factor times the block's
-    power price times its excess power.
+    A user with no agreed power is billed on the reached peak instead, which grows
+    through the month; None while neither is known.
     """
-    if any(figures[block].agreed is None for block in BLOCKS):
-        return None
-    power = sum(figures[block].agreed * prices.power[block] for block in BLOCKS)
-    energy = sum(figures[block].energy * prices.energy[block] for block in BLOCKS)
-    excess = sum(
-        weight * prices.power[block] * (figures[block].excess or 0.0) for block in BLOCKS
+    agreed = all(figures[block].agreed is not None for block in blocks)
+    if agreed:
+        kw = {block: figures[block].agreed for block in blocks}
+    else:
+        kw = {block: figures[block].peak or 0.0 for block in blocks}
+    return PowerCharge(
+        total=sum(kw[block] * prices.power[block] for block in blocks),
+        basis="agreed" if agreed else "reached",
+        per_block=kw,
     )
-    return FeeParts(power=power, energy=energy, excess=excess)
+
+
+def excess_charge(
+    prices: Prices, weight: float, figures: dict[int, BlockFigure], blocks: frozenset[int]
+) -> float | None:
+    """Weighting factor times the block's power price times its excess power.
+
+    Billed only if the agreed power was changed; None without agreed powers.
+    """
+    if any(figures[block].agreed is None for block in blocks):
+        return None
+    return sum(
+        weight * prices.power[block] * (figures[block].excess or 0.0) for block in blocks
+    )

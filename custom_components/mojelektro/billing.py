@@ -14,6 +14,7 @@ worked example from the Energy Agency's calculation guide).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from datetime import date, datetime, timedelta
 import math
 from zoneinfo import ZoneInfo
@@ -24,6 +25,21 @@ LJ = ZoneInfo("Europe/Ljubljana")
 BLOCKS = (1, 2, 3, 4, 5)
 QUARTER = timedelta(minutes=15)
 HOURS_PER_QUARTER = 0.25
+
+
+@lru_cache(maxsize=24)
+def blocks_in_month(month_first: date) -> frozenset[int]:
+    """The tariff blocks that occur at some hour of the month.
+
+    A bill charges the power of those blocks only: the dearest block 1 does not
+    occur in the lower season, block 5 does not occur in the higher one.
+    """
+    day, found = month_first, set()
+    while day.month == month_first.month:
+        for hour in range(24):
+            found.add(block_at(datetime(day.year, day.month, day.day, hour, tzinfo=LJ)))
+        day += timedelta(days=1)
+    return frozenset(found)
 
 
 @dataclass(frozen=True)

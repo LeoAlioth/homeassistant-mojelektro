@@ -5,11 +5,12 @@ import math
 
 import pytest
 
-from custom_components.mojelektro.billing import BLOCKS, BlockFigure
+from custom_components.mojelektro.billing import BLOCKS, BlockFigure, blocks_in_month
 from custom_components.mojelektro.prices import (
     USER_GROUPS,
     excess_weight,
-    network_fee,
+    excess_charge,
+    power_charge,
     prices_for,
 )
 
@@ -69,34 +70,42 @@ def test_the_weighting_factor_by_year():
     assert [excess_weight(y) for y in (2025, 2026, 2027, 2028, 2030)] == [0.9, 1.05, 1.05, 1.2, 1.2]
 
 
-def test_the_power_part_is_the_agreed_power_times_the_monthly_price():
-    fee = network_fee(prices_for(0, date(2026, 7, 15)), 1.05, figures(AGREED))
-    assert fee.power == pytest.approx(17.967722)
-    assert fee.energy == 0.0 and fee.excess == 0.0
+ALL = frozenset(BLOCKS)
 
 
-def test_the_phase_in_month_lowers_only_the_block_one_power_part():
-    fee = network_fee(prices_for(0, date(2026, 11, 15)), 1.05, figures(AGREED))
-    assert fee.power == pytest.approx(17.967722 - 3.4 * (3.82301 - 2.67611))
+def test_the_power_charge_is_the_agreed_power_times_the_monthly_price():
+    charge = power_charge(prices_for(0, date(2026, 7, 15)), figures(AGREED), ALL)
+    assert charge.total == pytest.approx(17.967722) and charge.basis == "agreed"
 
 
-def test_the_energy_part_is_the_taken_kwh_times_the_block_energy_price():
-    fee = network_fee(
-        prices_for(0, date(2026, 7, 15)), 1.05, figures(AGREED, energy={1: 100.0, 5: 200.0})
-    )
-    assert fee.energy == pytest.approx(100 * 0.02217 + 200 * 0.01299)
-    assert fee.total == pytest.approx(fee.power + fee.energy)
+def test_the_phase_in_month_lowers_only_the_block_one_power_price():
+    charge = power_charge(prices_for(0, date(2026, 11, 15)), figures(AGREED), ALL)
+    assert charge.total == pytest.approx(17.967722 - 3.4 * (3.82301 - 2.67611))
 
 
-def test_the_excess_part_is_weight_times_price_times_excess_power():
+def test_only_the_blocks_of_the_month_are_charged():
+    july = blocks_in_month(date(2026, 7, 1))
+    charge = power_charge(prices_for(0, date(2026, 7, 15)), figures(AGREED), july)
+    assert 1 not in charge.per_block
+    assert charge.total == pytest.approx(17.967722 - 3.4 * 3.82301)
+
+
+def test_no_agreed_power_bills_the_reached_peak():
+    peaks = {
+        block: BlockFigure(block, None, 2.0, None, (), 0.0) for block in BLOCKS
+    }
+    charge = power_charge(prices_for(0, date(2026, 7, 15)), peaks, ALL)
+    assert charge.basis == "reached"
+    assert charge.total == pytest.approx(2.0 * sum(prices_for(0, date(2026, 7, 15)).power.values()))
+
+
+def test_the_excess_charge_is_weight_times_price_times_excess_power():
     agreed = {**AGREED, 1: 4.6}
-    fee = network_fee(
-        prices_for(0, date(2026, 7, 15)), 1.05, figures(agreed, over={1: (5.4, 4.9, 6.1)})
+    charge = excess_charge(
+        prices_for(0, date(2026, 7, 15)), 1.05, figures(agreed, over={1: (5.4, 4.9, 6.1)}), ALL
     )
-    assert fee.excess == pytest.approx(1.05 * 3.82301 * math.sqrt(2.98))
-    # The excess is only billed when the agreed power was changed, so it is not in the total.
-    assert fee.total == pytest.approx(fee.power + fee.energy)
+    assert charge == pytest.approx(1.05 * 3.82301 * math.sqrt(2.98))
 
 
-def test_no_fee_while_an_agreed_power_is_unknown():
-    assert network_fee(prices_for(0, date(2026, 7, 15)), 1.05, figures({1: 3.4})) is None
+def test_no_excess_charge_without_agreed_power():
+    assert excess_charge(prices_for(0, date(2026, 7, 15)), 1.05, figures({1: 3.4}), ALL) is None

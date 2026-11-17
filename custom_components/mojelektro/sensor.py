@@ -14,10 +14,10 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .billing import BLOCKS, QUARTER
+from .billing import BLOCKS, QUARTER, blocks_in_month
 from .const import CONF_METER_ID, DOMAIN, VERSION
 from .history import async_imported_totals, history_signal, total_unique_id
-from .prices import excess_weight, network_fee, prices_for
+from .prices import excess_charge, excess_weight, power_charge, prices_for
 from .tariff import block_at
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,7 +52,8 @@ async def async_setup_entry(
     sensors += [
         LastIntervalPowerSensor(runtime, meter_id, "import"),
         LastIntervalPowerSensor(runtime, meter_id, "export"),
-        NetworkFeeSensor(runtime, meter_id),
+        PowerChargeSensor(runtime, meter_id),
+        ExcessChargeSensor(runtime, meter_id),
     ]
     async_add_entities(sensors)
 
@@ -212,7 +213,7 @@ class MonthlyPeakSensor(_BlockPowerSensor):
 
     @property
     def native_value(self) -> float | None:
-        return self._figure.peak
+        return _round(self._figure.peak)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -231,7 +232,7 @@ class PeakHeadroomSensor(_BlockPowerSensor):
 
     @property
     def native_value(self) -> float | None:
-        return self._figure.headroom
+        return _round(self._figure.headroom)
 
 
 class ExcessPowerSensor(_BlockPowerSensor):
@@ -244,7 +245,7 @@ class ExcessPowerSensor(_BlockPowerSensor):
 
     @property
     def native_value(self) -> float | None:
-        return self._figure.excess
+        return _round(self._figure.excess)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -271,7 +272,7 @@ class LastIntervalPowerSensor(MonthEntity):
 
     @property
     def native_value(self) -> float | None:
-        return self._interval.kw if self._interval else None
+        return _round(self._interval.kw) if self._interval else None
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -279,56 +280,90 @@ class LastIntervalPowerSensor(MonthEntity):
         return {"interval_end": _iso(interval.start + QUARTER) if interval else None}
 
 
-class NetworkFeeSensor(MonthEntity):
-    """Estimated network fee of the month so far, in EUR without VAT.
-
-    Power part (agreed power times price) plus energy part (kWh taken so far times
-    price). Excluded: the connection-power charge, contributions and VAT. The excess
-    charge is shown as an attribute: it is billed only if the agreed power was changed.
-    """
+class _ChargeSensor(MonthEntity):
+    """Base of the two power-charge estimates: EUR without VAT, from the price table."""
 
     _attr_native_unit_of_measurement = "EUR"
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_icon = "mdi:cash"
 
-    def __init__(self, runtime, meter_id: str) -> None:
-        super().__init__(runtime, meter_id, "network_fee_month_estimate", "Network fee estimate")
-
-    def _estimate(self):
+    def _context(self):
         month_first = self.coordinator.data.month_first
         prices = prices_for(self._runtime.user_group, month_first)
-        if prices is None:
-            return None, None
-        fee = network_fee(prices, excess_weight(month_first.year), self._runtime.figures())
-        return prices, fee
+        return prices, blocks_in_month(month_first), self._runtime.figures()
 
-    @property
-    def native_value(self) -> float | None:
-        _, fee = self._estimate()
-        return round(fee.total, 2) if fee else None
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        prices, fee = self._estimate()
+    def _common(self, prices) -> dict:
         attrs = {
             "user_group": self._runtime.user_group,
             "data_through": _iso(self.coordinator.data.through),
-            "excludes": ["connection power", "contributions", "VAT"],
         }
         if prices:
+            attrs |= {"prices_from": prices.source, "prices_estimated": prices.estimated}
+        return attrs
+
+
+class PowerChargeSensor(_ChargeSensor):
+    """The month's charge for agreed power, from the power price of each block in the month.
+
+    A fixed monthly amount, so it is whole from the first day. Only blocks that occur
+    in the month are charged. A user with no agreed power is billed on the reached peak
+    (attribute `basis`). Excluded: energy, connection power, contributions, VAT.
+    """
+
+    def __init__(self, runtime, meter_id: str) -> None:
+        # The id of the 0.4.0-dev1 fee estimate, so its entity carries over.
+        super().__init__(runtime, meter_id, "network_fee_month_estimate", "Agreed power charge")
+
+    @property
+    def native_value(self) -> float | None:
+        prices, blocks, figures = self._context()
+        charge = power_charge(prices, figures, blocks) if prices else None
+        return round(charge.total, 2) if charge else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        prices, blocks, figures = self._context()
+        attrs = self._common(prices)
+        charge = power_charge(prices, figures, blocks) if prices else None
+        if charge:
             attrs |= {
-                "prices_from": prices.source,
-                "prices_estimated": prices.estimated,
-                "power_price": prices.power,
-                "energy_price": prices.energy,
-            }
-        if fee:
-            attrs |= {
-                "power_part": round(fee.power, 2),
-                "energy_part": round(fee.energy, 2),
-                "excess_if_billed": round(fee.excess, 2),
+                "basis": charge.basis,
+                "blocks_charged": sorted(blocks),
+                "power_kw": {b: round(kw, 3) for b, kw in charge.per_block.items()},
+                "power_price": {b: prices.power[b] for b in sorted(blocks)},
             }
         return attrs
+
+
+class ExcessChargeSensor(_ChargeSensor):
+    """What the month's excess power would cost: weight x power price x excess power.
+
+    The network operator bills it only if the agreed power was changed.
+    """
+
+    _attr_icon = "mdi:cash-clock"
+
+    def __init__(self, runtime, meter_id: str) -> None:
+        super().__init__(runtime, meter_id, "excess_power_charge", "Excess power charge")
+
+    @property
+    def native_value(self) -> float | None:
+        prices, blocks, figures = self._context()
+        if not prices:
+            return None
+        charge = excess_charge(prices, excess_weight(self.coordinator.data.month_first.year), figures, blocks)
+        return None if charge is None else round(charge, 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        prices, _, _ = self._context()
+        return self._common(prices) | {
+            "weighting_factor": excess_weight(self.coordinator.data.month_first.year)
+        }
+
+
+def _round(value: float | None) -> float | None:
+    return None if value is None else round(value, 3)
 
 
 def _iso(moment) -> str | None:
