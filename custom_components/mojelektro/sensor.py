@@ -287,7 +287,7 @@ class _ChargeSensor(MonthEntity):
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_icon = "mdi:cash"
 
-    def _context(self):
+    def _inputs(self):
         month_first = self.coordinator.data.month_first
         prices = prices_for(self._runtime.user_group, month_first)
         return prices, blocks_in_month(month_first), self._runtime.figures()
@@ -316,13 +316,13 @@ class PowerChargeSensor(_ChargeSensor):
 
     @property
     def native_value(self) -> float | None:
-        prices, blocks, figures = self._context()
+        prices, blocks, figures = self._inputs()
         charge = power_charge(prices, figures, blocks) if prices else None
         return round(charge.total, 2) if charge else None
 
     @property
     def extra_state_attributes(self) -> dict:
-        prices, blocks, figures = self._context()
+        prices, blocks, figures = self._inputs()
         attrs = self._common(prices)
         charge = power_charge(prices, figures, blocks) if prices else None
         if charge:
@@ -348,7 +348,7 @@ class ExcessChargeSensor(_ChargeSensor):
 
     @property
     def native_value(self) -> float | None:
-        prices, blocks, figures = self._context()
+        prices, blocks, figures = self._inputs()
         if not prices:
             return None
         charge = excess_charge(prices, excess_weight(self.coordinator.data.month_first.year), figures, blocks)
@@ -356,7 +356,7 @@ class ExcessChargeSensor(_ChargeSensor):
 
     @property
     def extra_state_attributes(self) -> dict:
-        prices, _, _ = self._context()
+        prices, _, _ = self._inputs()
         return self._common(prices) | {
             "weighting_factor": excess_weight(self.coordinator.data.month_first.year)
         }
