@@ -4,6 +4,10 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.3.8] - 2026-11-17
+
+- the meter device's manufacturer is the maintainer's GitHub name, LeoAlioth, instead of a personal name; Home Assistant shows it after the next update and restart
+
 ## [0.3.7] - 2026-11-17
 
 - the integration's documentation and issue tracker links, and the README's badges, install URL and issues link, point to this fork (`LeoAlioth/homeassistant-mojelektro`); the README describes the 0.3.x series

@@ -85,7 +85,7 @@ def _device_info(meter_id: str) -> dict:
     return {
         "identifiers": {(DOMAIN, meter_id)},
         "name": f"Moj Elektro {meter_id}",
-        "manufacturer": "Anže Košir",
+        "manufacturer": "LeoAlioth",
         # Home Assistant requires model to be a string, not a set.
         "model": meter_id,
         "sw_version": VERSION,
